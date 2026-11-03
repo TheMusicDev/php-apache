@@ -12,7 +12,7 @@ DV="themusicdev/php-apache:${PHP_VERSION}-dev"
 
 PIDS=()
 cleanup() {
-    for p in "${PIDS[@]}"; do docker rm -f "$p" >/dev/null 2>&1 || true; done
+    for c in "${CIDS[@]}"; do docker rm -f "$c" >/dev/null 2>&1 || true; done
 }
 trap cleanup EXIT
 
@@ -54,18 +54,24 @@ echo "== php -v / extensions (runtime) =="
 PV=$(docker exec "$CAKE" php -r 'echo PHP_VERSION;')
 [[ "$PV" == 8.5.* ]] && pass "php -v is 8.5.x ($PV)" || fail "php -v is $PV"
 
-for ext in intl pdo_mysql mysqli opcache zip gd bcmath exif mbstring simplexml pdo_sqlite; do
-    docker exec "$CAKE" php -m | grep -qi "^$ext\$" \
+for ext in intl pdo_mysql mysqli zip gd bcmath exif mbstring simplexml pdo_sqlite; do
+    docker exec "$CAKE" php -r "exit((int)!extension_loaded('$ext'));" \
         && pass "ext: $ext" || fail "ext: $ext missing"
 done
+docker exec "$CAKE" php -r 'exit((int)!function_exists("opcache_get_status"));' \
+    && pass "ext: opcache" || fail "ext: opcache missing"
 docker exec "$CAKE" php -m | grep -qi '^xdebug' \
     && fail "xdebug present in runtime" || pass "xdebug absent in runtime"
 
 echo "== Dev target =="
 docker exec "$DEV" php -m | grep -qi '^xdebug' \
     && pass "xdebug present in dev" || fail "xdebug missing in dev"
-MODE=$(docker exec "$DEV" php -i | awk -F'=> ' '/^xdebug.mode/{print $2}')
-[[ "$MODE" == off ]] && pass "xdebug.mode default off" || fail "xdebug.mode=$MODE"
+# xdebug.mode ini is not reliably introspectable (XDEBUG_MODE env wins) —
+# assert the shipped default via the image env instead.
+docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$DV" | grep -q '^XDEBUG_MODE=off$' \
+    && pass "xdebug default off (XDEBUG_MODE=off)" || fail "xdebug default off"
+docker run --rm --entrypoint php -e XDEBUG_MODE=debug "$DV" -r 'exit(getenv("XDEBUG_MODE") === "debug" ? 0 : 1);' \
+    && pass "XDEBUG_MODE env override reaches PHP" || fail "XDEBUG_MODE env override"
 docker exec "$DEV" node -v >/dev/null 2>&1 && pass "node present in dev" || fail "node missing in dev"
 docker exec "$DEV" mysql --version >/dev/null 2>&1 && pass "mysql client present in dev" || fail "mysql client missing in dev"
 

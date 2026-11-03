@@ -87,9 +87,9 @@ RUN install-php-extensions xdebug \
     && rm -rf /var/lib/apt/lists/* \
     && mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
-# Xdebug off by default; enable per-container with XDEBUG_MODE (e.g. debug)
-RUN { echo "zend_extension=xdebug.so"; \
-      echo "xdebug.mode=off"; \
+# Xdebug off by default; enable per-container with XDEBUG_MODE (e.g. debug).
+# No zend_extension line: install-php-extensions already registers it.
+RUN { echo "xdebug.mode=off"; \
     } > /usr/local/etc/php/conf.d/zz-xdebug.ini
 
 ENV XDEBUG_MODE=off
