@@ -1,0 +1,182 @@
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  schedule:
+    # Weekly rebuild (Sunday 04:00 UTC) to pick up base-image security updates
+    - cron: '0 4 * * 0'
+
+env:
+  REGISTRY_IMAGE: themusicdev/php-apache
+  REGISTRY_GHCR: ghcr.io/themusicdev/php-apache
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build amd64 (runtime + dev)
+        run: |
+          docker build --target runtime -t themusicdev/php-apache:test .
+          docker build --target dev -t themusicdev/php-apache:test-dev .
+      - name: Smoke tests
+        run: tests/smoke-test.sh
+
+  # Multi-arch manifest: build both platforms with QEMU in one job is slow,
+  # so we build per-platform, push, and digest-merge into a manifest list.
+  push:
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker Hub login
+        if: env.REGISTRY_IMAGE != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: GHCR login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine tags
+        id: tags
+        run: |
+          PHP_VERSION=8.5.12
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            PHP_VERSION="${TAG#v}"
+          fi
+          V=${PHP_VERSION%.*}     # 8.5
+          {
+            echo "hub=${REGISTRY_IMAGE}:${PHP_VERSION},${REGISTRY_IMAGE}:${V}"
+            echo "ghcr=${REGISTRY_GHCR}:${PHP_VERSION},${REGISTRY_GHCR}:${V}"
+            echo "hub_dev=${REGISTRY_IMAGE}:${PHP_VERSION}-dev,${REGISTRY_IMAGE}:${V}-dev"
+            echo "ghcr_dev=${REGISTRY_GHCR}:${PHP_VERSION}-dev,${REGISTRY_GHCR}:${V}-dev"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build runtime + push by digest
+        id: build-rt
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          target: runtime
+          outputs: type=image,push=true
+          tags: |
+            ${{ steps.tags.outputs.hub }}
+            ${{ steps.tags.outputs.ghcr }}
+          provenance: false
+
+      - name: Build dev + push by digest
+        id: build-dv
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          target: dev
+          outputs: type=image,push=true
+          tags: |
+            ${{ steps.tags.outputs.hub_dev }}
+            ${{ steps.tags.outputs.ghcr_dev }}
+          provenance: false
+
+      - name: Export digests
+        run: |
+          mkdir -p /tmp/digests
+          p=${{ matrix.platform }}
+          p=${p#linux/}
+          digest="${{ steps.build-rt.outputs.digest }}"
+          echo "${digest#sha256:}" > "/tmp/digests/rt-${p}"
+          digest="${{ steps.build-dv.outputs.digest }}"
+          echo "${digest#sha256:}" > "/tmp/digests/dv-${p}"
+
+      - name: Upload digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: /tmp/digests/*
+
+  merge:
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    needs: push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker Hub login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: GHCR login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine tags
+        id: tags
+        run: |
+          PHP_VERSION=8.5.12
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            PHP_VERSION="${TAG#v}"
+          fi
+          V=${PHP_VERSION%.*}
+          echo "phpversion=$PHP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "v=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest lists
+        working-directory: /tmp/digests
+        run: |
+          PH="themusicdev/php-apache:${{ steps.tags.outputs.phpversion }}"
+          PV="themusicdev/php-apache:${{ steps.tags.outputs.v }}"
+          GH="ghcr.io/themusicdev/php-apache:${{ steps.tags.outputs.phpversion }}"
+          GV="ghcr.io/themusicdev/php-apache:${{ steps.tags.outputs.v }}"
+          for dst in "$PH" "$PV"; do
+            docker buildx imagetools create -t "$dst" \
+              $(printf 'themusicdev/php-apache@sha256:%s ' rt-*)
+          done
+          for dst in "$GH" "$GV"; do
+            docker buildx imagetools create -t "$dst" \
+              $(printf 'ghcr.io/themusicdev/php-apache@sha256:%s ' rt-*)
+          done
+          for dst in "$PH-dev" "${PV}-dev"; do
+            docker buildx imagetools create -t "$dst" \
+              $(printf 'themusicdev/php-apache@sha256:%s ' dv-*)
+          done
+          for dst in "$GH-dev" "${GV}-dev"; do
+            docker buildx imagetools create -t "$dst" \
+              $(printf 'ghcr.io/themusicdev/php-apache@sha256:%s ' dv-*)
+          done
