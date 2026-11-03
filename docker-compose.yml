@@ -1,0 +1,26 @@
+name: php-apache-smoke
+
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+      args:
+        PHP_VERSION: "8.5.12"
+    image: themusicdev/php-apache:8.5.12
+    ports:
+      - "8080:80"
+    volumes:
+      - ./tests/fixtures/app-cake:/var/www/html
+    depends_on:
+      - db
+
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: app
+      MARIADB_USER: app
+      MARIADB_PASSWORD: app
+    ports:
+      - "3306:3306"
