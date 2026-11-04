@@ -166,17 +166,17 @@ jobs:
           GV="ghcr.io/themusicdev/php-apache:${{ steps.tags.outputs.v }}"
           for dst in "$PH" "$PV"; do
             docker buildx imagetools create -t "$dst" \
-              $(printf 'themusicdev/php-apache@sha256:%s ' rt-*)
+              $(printf 'themusicdev/php-apache@sha256:%s ' $(cat rt-*))
           done
           for dst in "$GH" "$GV"; do
             docker buildx imagetools create -t "$dst" \
-              $(printf 'ghcr.io/themusicdev/php-apache@sha256:%s ' rt-*)
+              $(printf 'ghcr.io/themusicdev/php-apache@sha256:%s ' $(cat rt-*))
           done
           for dst in "$PH-dev" "${PV}-dev"; do
             docker buildx imagetools create -t "$dst" \
-              $(printf 'themusicdev/php-apache@sha256:%s ' dv-*)
+              $(printf 'themusicdev/php-apache@sha256:%s ' $(cat dv-*))
           done
           for dst in "$GH-dev" "${GV}-dev"; do
             docker buildx imagetools create -t "$dst" \
-              $(printf 'ghcr.io/themusicdev/php-apache@sha256:%s ' dv-*)
+              $(printf 'ghcr.io/themusicdev/php-apache@sha256:%s ' $(cat dv-*))
           done
