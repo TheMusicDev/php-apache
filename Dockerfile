@@ -21,6 +21,14 @@ RUN install-php-extensions \
         gd \
         bcmath \
         exif \
+        imagick \
+        soap \
+        xsl \
+        bz2 \
+        ftp \
+        pdo_pgsql \
+        pgsql \
+        gmp \
     && docker-php-source delete
 
 # System tools apps build against

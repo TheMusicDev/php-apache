@@ -54,7 +54,7 @@ echo "== php -v / extensions (runtime) =="
 PV=$(docker exec "$CAKE" php -r 'echo PHP_VERSION;')
 [[ "$PV" == 8.5.* ]] && pass "php -v is 8.5.x ($PV)" || fail "php -v is $PV"
 
-for ext in intl pdo_mysql mysqli zip gd bcmath exif mbstring simplexml pdo_sqlite; do
+for ext in intl pdo_mysql mysqli zip gd bcmath exif mbstring simplexml pdo_sqlite imagick soap xsl bz2 ftp pdo_pgsql pgsql gmp; do
     docker exec "$CAKE" php -r "exit((int)!extension_loaded('$ext'));" \
         && pass "ext: $ext" || fail "ext: $ext missing"
 done

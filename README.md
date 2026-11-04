@@ -31,9 +31,9 @@ Runtime behavior built in:
 
 ## Included PHP extensions
 
-`intl pdo_mysql mysqli opcache zip gd (jpeg+webp+freetype) bcmath exif`, plus already-present-in-base `mbstring simplexml pdo_sqlite`.
+`intl pdo_mysql mysqli opcache zip gd (jpeg+webp+freetype) bcmath exif imagick soap xsl bz2 ftp pdo_pgsql pgsql gmp`, plus bundled-in-base `mbstring simplexml pdo_sqlite lexbor uri sodium`.
 
-> **To reconcile with serverbyt:** this list targets the official `php:8.5-apache` base plus explicit installs. Pending: compare against serverbyt's live `phpinfo()` module list and reconcile — see note in this README tracked in the task list until then.
+> **Reconciled with serverbyt (2026-11-03):** the runtime carries the *essentials* tier of the serverbyt module list. Deliberately absent from serverbyt parity: `pdo_dblib PDO_ODBC odbc PDO_Firebird sqlsrv snmp imap dba shmop pcntl tidy pspell OAuth xmlrpc gettext ldap calendar`, and the proprietary loaders `ionCube Loader` / `SourceGuardian` (only needed to run encoded/obfuscated third-party PHP; automated CI builds are not a safe home for them). If an app needs one, install it in the child Dockerfile via `install-php-extensions <name>`.
 
 ## Child Dockerfile examples
 
